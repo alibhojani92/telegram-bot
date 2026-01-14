@@ -1,5 +1,5 @@
 /*****************************************************************
- GPSC DENTAL PULSE BOT – SAFE FINAL VERSION (FILE STORAGE)
+ GPSC DENTAL PULSE BOT – SAFE FINAL VERSION v3 (LOCKED)
 ******************************************************************/
 process.env.TZ = "Asia/Kolkata";
 
@@ -25,8 +25,7 @@ function loadData() {
     const init = {
       readingLog: {},
       mcqs: [],
-      testLog: {},
-      wrongMCQs: {}
+      testLog: {}
     };
     fs.writeFileSync(DATA_FILE, JSON.stringify(init, null, 2));
     return init;
@@ -46,7 +45,6 @@ app.post(`/bot${TOKEN}`, (req, res) => {
   bot.processUpdate(req.body);
   res.sendStatus(200);
 });
-
 app.get("/", (_, res) => res.send("Dental Pulse Bot Running ✅"));
 app.listen(PORT);
 
@@ -55,12 +53,9 @@ const DAILY_TARGET = 8 * 60;
 const EXAM_DATE = new Date("2026-02-18");
 
 const today = () => new Date().toISOString().split("T")[0];
-const fmt = m =>
-  `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
-const daysLeft = () =>
-  Math.ceil((EXAM_DATE - new Date()) / 86400000);
-const timeHM = () =>
-  new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+const fmt = m => `${String(Math.floor(m/60)).padStart(2,"0")}:${String(m%60).padStart(2,"0")}`;
+const daysLeft = () => Math.ceil((EXAM_DATE - new Date()) / 86400000);
+const timeHM = () => new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"});
 
 /* ================= READING ================= */
 let readingSession = null;
@@ -121,9 +116,11 @@ bot.onText(/\/addmcq([\s\S]*)/, (msg, m) => {
     const C = b.match(/C\)(.*?)D\)/s)?.[1];
     const D = b.match(/D\)(.*?)OK/s)?.[1];
     const ans = b.match(/OK\s*([ABCD])/i)?.[1];
+    const subject = b.match(/Subject:(.*)/i)?.[1]?.trim() || "General";
     const exp = b.match(/Explanation:(.*)/s)?.[1] || "";
+
     if (q && A && B && C && D && ans) {
-      DB.mcqs.push({ q, A, B, C, D, ans, exp });
+      DB.mcqs.push({ q, A, B, C, D, ans, subject, exp });
     }
   });
 
@@ -164,43 +161,43 @@ Score: ${activeTest.score}/${activeTest.qs.length}`);
 
 bot.onText(/\/dt/, () => startTest(20));
 
+/* ===== ADMIN ONLY TEST CANCEL ===== */
+bot.onText(/\/dtc/, msg => {
+  if (msg.from.id !== ADMIN_ID) {
+    bot.sendMessage(msg.chat.id, "🚫 Only Admin can cancel the test");
+    return;
+  }
+  if (!activeTest) return;
+
+  activeTest = null;
+  bot.sendMessage(GROUP_ID,
+`⚠️ Test has been cancelled by Admin
+This test will NOT be counted`);
+});
+
+/* ===== ANSWER HANDLER ===== */
 bot.on("callback_query", q => {
   if (!activeTest) return;
   const cur = activeTest.qs[activeTest.i];
 
   if (q.data === cur.ans) {
     activeTest.score++;
-    bot.sendMessage(GROUP_ID, "✅ Correct 🎉");
-  } else {
-    DB.wrongMCQs[cur.q] = true;
-    saveData();
     bot.sendMessage(GROUP_ID,
-`❌ Wrong
-✔️ Correct: ${cur.ans}
-${cur.exp}`);
+`✅ Correct 🎉
+📚 Subject: ${cur.subject}
+
+💡 ${cur.exp}`);
+  } else {
+    bot.sendMessage(GROUP_ID,
+`❌ Wrong 😕
+✔️ Correct Answer: ${cur.ans}
+📚 Subject: ${cur.subject}
+
+💡 ${cur.exp}`);
   }
 
   activeTest.i++;
   setTimeout(sendQ, 2000);
-});
-
-/* ================= REPORT ================= */
-bot.onText(/\/report/, msg => {
-  if (msg.chat.id !== GROUP_ID) return;
-
-  let out =
-`📊 Study Report – Arzoo
-📆 Exam: 18-Feb-2026
-⏳ Days Remaining: ${daysLeft()}
-
-`;
-
-  Object.keys(DB.readingLog).sort().reverse().forEach(d => {
-    out += `📅 ${d}\n📖 Reading: ${fmt(DB.readingLog[d])}\n\n`;
-  });
-
-  out += "🌟 Overall Advice:\nConsistency + revision = success 💪📚";
-  bot.sendMessage(GROUP_ID, out);
 });
 
 /* ================= DAILY AUTOMATION ================= */
