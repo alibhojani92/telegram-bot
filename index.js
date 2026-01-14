@@ -115,14 +115,14 @@ bot.onText(/\/stop/i, (msg) => {
   );
 });
 
-/* ================= MCQ ADD (ADMIN – BULK SAFE FINAL) ================= */
+/* ================= MCQ ADD (ADMIN – BULK FINAL FIX) ================= */
 
-bot.onText(/^\/addmcqs$/i, (msg) => {
+bot.onText(/^\/addmcq(s)?$/i, (msg) => {
   if (msg.from.id !== ADMIN_ID) return;
 
   bot.sendMessage(
     msg.chat.id,
-    "🛠 Admin Panel\nReply to THIS message with MCQs\n\nFormat:\nSUBJECT: Oral Pathology\nQ1..."
+    "🛠 Admin Panel\nReply to THIS message with MCQs\n\nFormat:\nSUBJECT: Oral Pathology\nQ1...."
   );
 });
 
@@ -148,12 +148,12 @@ bot.on("message", (msg) => {
   let skipped = 0;
 
   blocks.forEach((b) => {
-    const q = b.match(/Q\d+\.\s*(.*)/i)?.[1]?.trim();
-    const A = b.match(/A\)\s*(.*)/i)?.[1]?.trim();
-    const B = b.match(/B\)\s*(.*)/i)?.[1]?.trim();
-    const C = b.match(/C\)\s*(.*)/i)?.[1]?.trim();
-    const D = b.match(/D\)\s*(.*)/i)?.[1]?.trim();
-    const ans = b.match(/Ans:\s*\(?([ABCD])\)?/i)?.[1];
+    const q = b.match(/Q\d+\.\s*(.*)/)?.[1]?.trim();
+    const A = b.match(/A\)\s*(.*)/)?.[1]?.trim();
+    const B = b.match(/B\)\s*(.*)/)?.[1]?.trim();
+    const C = b.match(/C\)\s*(.*)/)?.[1]?.trim();
+    const D = b.match(/D\)\s*(.*)/)?.[1]?.trim();
+    const ans = b.match(/Ans:\s*([ABCD])/i)?.[1];
     const exp = b.match(/Exp:\s*(.*)/i)?.[1] || "";
 
     if (q && A && B && C && D && ans) {
