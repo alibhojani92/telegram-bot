@@ -1,21 +1,22 @@
 /*****************************************************************
- GPSC DENTAL PULSE BOT – FINAL v4.2
+ GPSC DENTAL PULSE BOT – FINAL v4.3 (GITHUB READY)
 *****************************************************************/
+
 const express = require("express");
 const TelegramBot = require("node-telegram-bot-api");
 const fs = require("fs");
 
-/* ================= BASIC SETUP ================= */
 const app = express();
 app.use(express.json());
 
+/* ================= ENV ================= */
 const TOKEN = process.env.BOT_TOKEN;
 const APP_URL = process.env.APP_URL;
 const GROUP_ID = Number(process.env.GROUP_ID);
 const ADMIN_ID = Number(process.env.ADMIN_ID);
 const PORT = process.env.PORT || 3000;
 
-/* ================= BOT INIT (WEBHOOK) ================= */
+/* ================= BOT ================= */
 const bot = new TelegramBot(TOKEN);
 bot.setWebHook(`${APP_URL}/bot${TOKEN}`);
 
@@ -24,53 +25,43 @@ app.post(`/bot${TOKEN}`, (req, res) => {
   res.sendStatus(200);
 });
 
-app.get("/", (_, res) => res.send("GPSC DENTAL PULSE BOT Running ✅"));
+app.get("/", (_, res) => res.send("GPSC DENTAL PULSE BOT v4.3 Running ✅"));
 app.listen(PORT, () => console.log("Server started"));
 
-/* ================= DATA STORE (SAFE) ================= */
+/* ================= DATABASE ================= */
 const DB_FILE = "./db.json";
 let DB = fs.existsSync(DB_FILE)
   ? JSON.parse(fs.readFileSync(DB_FILE))
-  : {
-      mcqs: [],
-      reading: {},
-      tests: [],
-      usedDaily: []
-    };
+  : { mcqs: [], reading: {}, tests: [] };
 
 const saveDB = () =>
   fs.writeFileSync(DB_FILE, JSON.stringify(DB, null, 2));
 
 /* ================= HELPERS ================= */
-const nowDate = () => new Date().toISOString().slice(0, 10);
+const today = () => new Date().toISOString().slice(0, 10);
 const toHM = (m) =>
   `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
-
-function shuffle(arr) {
-  return arr.sort(() => Math.random() - 0.5);
-}
+const shuffle = (a) => a.sort(() => Math.random() - 0.5);
 
 /* ================= START ================= */
 bot.onText(/\/start/, (msg) => {
   bot.sendMessage(msg.chat.id, "Dear Arzoo 🌸\nGPSC DENTAL PULSE BOT Running ✅");
 });
 
-/* ================= READING SYSTEM ================= */
-let readingSession = {};
+/* ================= READING ================= */
+let readingStart = null;
 
 bot.onText(/(\/read|#read)/, (msg) => {
-  readingSession[msg.from.id] = Date.now();
+  readingStart = Date.now();
   bot.sendMessage(msg.chat.id, "Dear Arzoo 📖\nReading started. Stay focused 💪");
 });
 
 bot.onText(/\/stop/, (msg) => {
-  const uid = msg.from.id;
-  if (!readingSession[uid]) return;
+  if (!readingStart) return;
+  const mins = Math.floor((Date.now() - readingStart) / 60000);
+  readingStart = null;
 
-  const mins = Math.floor((Date.now() - readingSession[uid]) / 60000);
-  delete readingSession[uid];
-
-  const d = nowDate();
+  const d = today();
   DB.reading[d] = (DB.reading[d] || 0) + mins;
   saveDB();
 
@@ -85,61 +76,51 @@ bot.onText(/\/stop/, (msg) => {
   if (msg.from.id !== ADMIN_ID) {
     bot.sendMessage(
       ADMIN_ID,
-      `📢 Arzoo stopped reading\nToday: ${toHM(total)}`
+      `📢 Arzoo stopped reading\nToday total: ${toHM(total)}`
     );
   }
 });
 
-/* ================= ADD MCQ (ADMIN ONLY) ================= */
+/* ================= ADD MCQ (ADMIN) ================= */
 bot.onText(/\/addmcq([\s\S]*)/, (msg, m) => {
   if (msg.from.id !== ADMIN_ID) return;
 
-  const t = m[1];
-  const q = t.match(/Q\d*\.(.*)/)?.[1]?.trim();
-  const A = t.match(/A\)(.*)/)?.[1];
-  const B = t.match(/B\)(.*)/)?.[1];
-  const C = t.match(/C\)(.*)/)?.[1];
-  const D = t.match(/D\)(.*)/)?.[1];
-  const ans = t.match(/OK\s*([A-D])/i)?.[1];
-  const exp = t.match(/Explanation:(.*)/s)?.[1]?.trim() || "";
-  const subj = t.match(/Subject:(.*)/)?.[1]?.trim() || "General";
+  const text = m[1].trim();
+  const blocks = text.split(/\n\s*\n/);
+  let added = 0;
 
-  if (!q || !A || !B || !C || !D || !ans) {
-    bot.sendMessage(msg.chat.id, "❌ MCQ format wrong");
-    return;
-  }
+  blocks.forEach((b) => {
+    const q = b.match(/Q\d*\.(.*)/)?.[1]?.trim();
+    const A = b.match(/A\)(.*)/)?.[1];
+    const B = b.match(/B\)(.*)/)?.[1];
+    const C = b.match(/C\)(.*)/)?.[1];
+    const D = b.match(/D\)(.*)/)?.[1];
+    const ans = b.match(/OK\s*([A-D])/i)?.[1];
+    const exp = b.match(/Explanation:(.*)/s)?.[1]?.trim() || "";
+    const subj = b.match(/Subject:(.*)/)?.[1]?.trim() || "General";
 
-  DB.mcqs.push({ q, A, B, C, D, ans, exp, subj });
+    if (q && A && B && C && D && ans) {
+      DB.mcqs.push({ q, A, B, C, D, ans, exp, subj });
+      added++;
+    }
+  });
+
   saveDB();
-  bot.sendMessage(msg.chat.id, "✅ MCQ saved");
+  bot.sendMessage(msg.chat.id, `✅ ${added} MCQs saved permanently`);
 });
 
 /* ================= TEST ENGINE ================= */
 let activeTest = null;
 let timer = null;
-let timeLeft = 300;
+let timeLeft = 0;
 
-function startTest(count, subject = null) {
-  let pool = DB.mcqs;
-  if (subject) pool = pool.filter(m => m.subj.toLowerCase() === subject);
-
-  const unused = pool.filter((_, i) => !DB.usedDaily.includes(i));
-  const qs = shuffle(unused.length ? unused : pool).slice(0, count);
-
-  activeTest = {
-    qs,
-    i: 0,
-    score: 0,
-    wrong: 0,
-    timeup: 0,
-    start: Date.now()
-  };
+function startTest(count) {
+  const pool = shuffle([...DB.mcqs]).slice(0, count);
+  activeTest = { qs: pool, i: 0, score: 0, wrong: 0, timeup: 0 };
 }
 
-function sendQ() {
-  if (!activeTest) return;
-
-  if (activeTest.i >= activeTest.qs.length) {
+function sendQuestion() {
+  if (!activeTest || activeTest.i >= activeTest.qs.length) {
     finishTest();
     return;
   }
@@ -149,23 +130,22 @@ function sendQ() {
 
   bot.sendMessage(
     GROUP_ID,
-`📝 Q${activeTest.i + 1}️⃣ ${q.q}
+`📝 Q${activeTest.i + 1}. ${q.q}
 
-A. ${q.A}
-B. ${q.B}
-C. ${q.C}
-D. ${q.D}
+A) ${q.A}
+B) ${q.B}
+C) ${q.C}
+D) ${q.D}
 
 ⏳ Remaining Time: 05:00`,
-    {
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: "A", callback_data: "A" }, { text: "B", callback_data: "B" }],
-          [{ text: "C", callback_data: "C" }, { text: "D", callback_data: "D" }]
-        ]
-      }
-    }
-  );
+{
+  reply_markup: {
+    inline_keyboard: [
+      [{ text: "A", callback_data: "A" }, { text: "B", callback_data: "B" }],
+      [{ text: "C", callback_data: "C" }, { text: "D", callback_data: "D" }]
+    ]
+  }
+});
 
   clearInterval(timer);
   timer = setInterval(() => {
@@ -182,7 +162,7 @@ D. ${q.D}
         `⏰ Time’s Up!\n✔️ Correct Answer: ${q.ans}\n📚 ${q.subj}\n💡 ${q.exp}`
       );
       activeTest.i++;
-      setTimeout(sendQ, 2000);
+      setTimeout(sendQuestion, 2000);
     }
   }, 1000);
 }
@@ -206,39 +186,33 @@ bot.on("callback_query", (cq) => {
   }
 
   activeTest.i++;
-  setTimeout(sendQ, 2000);
+  setTimeout(sendQuestion, 2000);
 });
 
 /* ================= FINISH TEST ================= */
 function finishTest() {
+  if (!activeTest) return;
+
   const total = activeTest.qs.length;
-  const accuracy = Math.round((activeTest.score / total) * 100);
+  const acc = Math.round((activeTest.score / total) * 100);
+  const result = activeTest.score >= 12 ? "PASS ✅" : "FAIL ❌";
 
-  const result =
-    activeTest.score >= 12 ? "PASS ✅" : "FAIL ❌";
-
-  const summary =
-`📊 Test Result – Daily Test
+  bot.sendMessage(
+    GROUP_ID,
+`📊 Test Result
 
 ✅ Correct: ${activeTest.score}
 ❌ Wrong: ${activeTest.wrong}
 ⏰ Time-up: ${activeTest.timeup}
 
-🎯 Score: ${activeTest.score} / ${total}
-📈 Accuracy: ${accuracy}%
+🎯 Score: ${activeTest.score}/${total}
+📈 Accuracy: ${acc}%
 📌 Result: ${result}
 
-💡 Advice:
-Focus on weak topics & improve speed ⏱️`;
+💡 Advice: Revise wrong MCQs & improve speed ⏱️`
+  );
 
-  bot.sendMessage(GROUP_ID, summary);
-
-  DB.tests.push({
-    date: nowDate(),
-    score: activeTest.score,
-    total,
-    accuracy
-  });
+  DB.tests.push({ date: today(), score: activeTest.score, total });
   saveDB();
   activeTest = null;
 }
@@ -248,7 +222,14 @@ bot.onText(/\/dt$/, (msg) => {
   if (msg.chat.id !== GROUP_ID) return;
   startTest(20);
   bot.sendMessage(GROUP_ID, "📝 Daily Test Started (20 MCQs)");
-  sendQ();
+  sendQuestion();
+});
+
+bot.onText(/\/dtc$/, (msg) => {
+  if (msg.from.id !== ADMIN_ID) return;
+  clearInterval(timer);
+  activeTest = null;
+  bot.sendMessage(GROUP_ID, "🛑 Test Cancelled by Admin\n❌ Not counted");
 });
 
 bot.onText(/\/report/, (msg) => {
