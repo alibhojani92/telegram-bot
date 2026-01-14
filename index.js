@@ -132,7 +132,7 @@ bot.on("message", (msg) => {
   if (!ADD || !msg.reply_to_message || !msg.text) return;
   if (msg.text.startsWith("/")) return;
 
-  ADD = false;
+  
 
   let subject = "General";
   const sm = msg.text.match(/^SUBJECT:\s*(.*)$/im);
@@ -162,6 +162,7 @@ bot.on("message", (msg) => {
   });
 
   save();
+ ADD = false;
   bot.sendMessage(msg.chat.id, `🛠 Admin Panel\nAdded: ${add}\nSkipped: ${skip}`);
 });
 
