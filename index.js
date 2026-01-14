@@ -16,7 +16,7 @@ const TIMEZONE = process.env.TIMEZONE || "Asia/Kolkata";
 
 /* ================= SERVER ================= */
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));
 
 /* ================= BOT ================= */
 const bot = new TelegramBot(TOKEN, {
