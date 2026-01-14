@@ -87,11 +87,19 @@ bot.onText(/^\/read$/i, (msg) => {
     );
   }
 
-  DB.readingSession[msg.from.id] = {
-    start: Date.now(),
-    date: today(),
-  };
-  save();
+  // 🔒 BUG FIX: prevent duplicate /read
+if (DB.readingSession[msg.from.id]) {
+  return bot.sendMessage(
+    msg.chat.id,
+    "📖 Reading already running.\nUse /stop before starting again."
+  );
+}
+
+DB.readingSession[msg.from.id] = {
+  start: Date.now(),
+  date: today(),
+};
+save();
 
   bot.sendMessage(
     msg.chat.id,
