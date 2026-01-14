@@ -1,177 +1,99 @@
-/*************************************************
- * GPSC DENTAL PULSE STUDY BOT
- * Student: Arzoo
- * Hosting: Render (FREE) + UptimeRobot
- * Mode: Webhook (Stable)
- *************************************************/
-
 const express = require("express");
 const TelegramBot = require("node-telegram-bot-api");
 
 const app = express();
 app.use(express.json());
 
-// ================= CONFIG =================
+const TOKEN = process.env.BOT_TOKEN;
 const PORT = process.env.PORT || 3000;
-const BOT_TOKEN = process.env.BOT_TOKEN;
-const WEBHOOK_URL = process.env.WEBHOOK_URL;
+const BOT_NAME = "GPSC DENTAL PULSE BOT";
 
-const STUDENT_NAME = "Arzoo";
-const EXAM_DATE = new Date("2026-02-18T00:00:00");
+const bot = new TelegramBot(TOKEN);
+const WEBHOOK_URL = `https://telegram-bot-i9v0.onrender.com/bot${TOKEN}`;
 
-// ================= BOT INIT =================
-const bot = new TelegramBot(BOT_TOKEN);
+// ---------- WEBHOOK ----------
+bot.setWebHook(WEBHOOK_URL);
 
-// Webhook setup
-bot.setWebHook(`${WEBHOOK_URL}/bot${BOT_TOKEN}`);
-
-app.post(`/bot${BOT_TOKEN}`, (req, res) => {
+app.post(`/bot${TOKEN}`, (req, res) => {
   bot.processUpdate(req.body);
   res.sendStatus(200);
 });
 
-// ================= HELPERS =================
-function isGroup(msg) {
-  return msg.chat.type === "group" || msg.chat.type === "supergroup";
-}
+// ---------- BASIC ROUTE (Render + UptimeRobot) ----------
+app.get("/", (req, res) => {
+  res.send("Bot is alive ✅");
+});
 
-function prefix(msg) {
-  return isGroup(msg) ? `Dear ${STUDENT_NAME}.\n` : "";
-}
-
-function daysRemaining() {
-  const today = new Date();
-  const diff = EXAM_DATE - today;
-  return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
-}
-
-// ================= BASIC COMMANDS =================
-bot.onText(/\/start|#start/, (msg) => {
+// ---------- START COMMAND ----------
+bot.onText(/\/start/, (msg) => {
   bot.sendMessage(
     msg.chat.id,
-    `${prefix(msg)}GPSC DENTAL PULSE BOT is Running ✅`
+    `Dear Arzoo 🌸\n\n${BOT_NAME} Running ✅`
   );
 });
 
-bot.onText(/\/read|#read/, (msg) => {
+// ---------- READ COMMAND ----------
+bot.onText(/^(\/read|#read)$/i, (msg) => {
   bot.sendMessage(
     msg.chat.id,
-    `${prefix(msg)}📖 Reading started.\nStay focused 💪`
+    `Dear Arzoo 📖\n\nReading started.\nStay focused 💪`
   );
 });
 
-bot.onText(/\/stop|#stop/, (msg) => {
+// ---------- EXAM COUNTDOWN ----------
+const EXAM_DATE = new Date("2026-02-18T09:00:00");
+
+function sendCountdown(chatId) {
+  const now = new Date();
+  const diff = EXAM_DATE - now;
+  if (diff <= 0) return;
+
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
   bot.sendMessage(
-    msg.chat.id,
-    `${prefix(msg)}⏹ Reading stopped.\nGood effort 👍`
+    chatId,
+    `Dear Arzoo ⏳\n\nExam Countdown:\n📅 ${days} days remaining\nStay consistent 💪`
   );
-});
-
-// ================= DAILY TEST (SIMULATION HOOK) =================
-let lastTestResult = null;
-
-bot.onText(/\/dt|#dt/, (msg) => {
-  if (!isGroup(msg)) return;
-
-  bot.sendMessage(
-    msg.chat.id,
-    `${prefix(msg)}📝 Daily Test started.\n20 MCQs incoming 📊`
-  );
-
-  // ---- SIMULATION: after some time test ends ----
-  // (In your full MCQ engine, this part auto triggers)
-  setTimeout(() => {
-    // Example score logic (replace with real one later)
-    const score = Math.floor(Math.random() * 21); // 0–20
-    let result;
-
-    if (score >= 16) result = "EXCELLENT";
-    else if (score >= 14) result = "GOOD";
-    else if (score >= 12) result = "PASS";
-    else result = "FAIL";
-
-    lastTestResult = result;
-
-    bot.sendMessage(
-      msg.chat.id,
-      `${prefix(msg)}📝 Test Completed\nScore: ${score}/20\nResult: ${result}`
-    );
-
-    // Good Night message after 5 minutes
-    setTimeout(() => {
-      sendGoodNight(msg.chat.id, result);
-    }, 5 * 60 * 1000);
-
-  }, 20 * 1000); // demo delay
-});
-
-// ================= GOOD NIGHT MOTIVATION =================
-function sendGoodNight(chatId, result) {
-  let messages = [];
-
-  if (result === "EXCELLENT") {
-    messages = [
-      "Today’s performance was excellent.\nConsistency like this builds rank.",
-      "Excellent accuracy today.\nMaintain this discipline."
-    ];
-  } else if (result === "GOOD") {
-    messages = [
-      "Today’s performance was good.\nWith a little more revision, it can be excellent.",
-      "Good progress today.\nFocus on weak areas tomorrow."
-    ];
-  } else if (result === "PASS") {
-    messages = [
-      "You cleared the test, but improvement is needed.\nAnalyse mistakes tomorrow.",
-      "Passing is fine, mastery is better.\nWork on weak topics."
-    ];
-  } else {
-    messages = [
-      "Today’s result was not as expected.\nThis is feedback, not failure.",
-      "Result was weak today.\nCorrect mistakes and move forward."
-    ];
-  }
-
-  const msg =
-    `Dear ${STUDENT_NAME}.\n🌙 Good Night 🌙\n\n` +
-    messages[Math.floor(Math.random() * messages.length)] +
-    `\n\nRest well. Tomorrow is a new opportunity 📘`;
-
-  bot.sendMessage(chatId, msg);
 }
 
-// ================= EXAM COUNTDOWN (4 TIMES DAILY) =================
-const COUNTDOWN_TIMES = [
-  { h: 8, m: 0 },
-  { h: 12, m: 0 },
-  { h: 17, m: 0 },
-  { h: 22, m: 0 }
-];
-
+// ---------- DAILY SCHEDULE ----------
 setInterval(() => {
   const now = new Date();
   const h = now.getHours();
   const m = now.getMinutes();
 
-  COUNTDOWN_TIMES.forEach(t => {
-    if (h === t.h && m === t.m) {
-      const days = daysRemaining();
-      if (days >= 0) {
-        bot.sendMessage(
-          process.env.GROUP_ID || "",
-          `Dear ${STUDENT_NAME}.\n🦷 GPSC DENTAL EXAM COUNTDOWN ⏳\n\n📅 Exam Date: 18-Feb-2026\n⏰ Days Remaining: ${days} days\n\nEvery day matters. Stay disciplined 💪📚`
-        );
-      }
-    }
-  });
-}, 60 * 1000);
+  // 8 AM, 12 PM, 5 PM, 10 PM
+  if (
+    (h === 8 || h === 12 || h === 17 || h === 22) &&
+    m === 0
+  ) {
+    sendCountdown(process.env.GROUP_ID);
+  }
+}, 60000);
 
-// ================= HEALTH CHECK =================
-app.get("/", (req, res) => {
-  res.send("GPSC Dental Pulse Bot is Live 🚀");
-});
+// ---------- GOOD NIGHT MOTIVATION ----------
+function sendGoodNight(chatId, passed = true) {
+  const messagesPass = [
+    "Excellent discipline today 🌟",
+    "Consistency is building success 💪",
+    "Strong effort today, proud of you 👏",
+  ];
+  const messagesFail = [
+    "Tomorrow is a new chance 🌅",
+    "Small steps daily lead to big success 💡",
+    "Don’t stop, keep pushing 💪",
+  ];
 
-// ================= START SERVER =================
+  const msg = passed
+    ? messagesPass[Math.floor(Math.random() * messagesPass.length)]
+    : messagesFail[Math.floor(Math.random() * messagesFail.length)];
+
+  bot.sendMessage(
+    chatId,
+    `Dear Arzoo 🌙\n\n${msg}\n\nGood Night 😴`
+  );
+}
+
+// ---------- SERVER ----------
 app.listen(PORT, () => {
   console.log("Server running on port", PORT);
-  console.log("GPSC Dental Pulse Bot started ✅");
 });
