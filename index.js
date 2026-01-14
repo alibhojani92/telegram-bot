@@ -136,48 +136,68 @@ Consistency + MCQs = GPSC success`
 });
 
 /* ================= MCQ ADD (ADMIN) ================= */
-let ADD=false;
+let ADD = false;
 
-bot.onText(/\/addmcq$/,msg=>{
-  if(msg.from.id!==ADMIN_ID) return;
-  ADD=true;
+bot.onText(/\/addmcq$/, msg => {
+  if (msg.from.id !== ADMIN_ID) return;
+  ADD = true;
   bot.sendMessage(
     msg.chat.id,
-`🛠️ Admin Panel
+`🛠 Admin Panel
 Reply with MCQs
 
-Q. Question
-A) ..
-B) ..
-C) ..
-D) ..
+SUBJECT: Oral Anatomy
+
+Q.1 Question?
+A) A
+B) B
+C) C
+D) D
 Ans: A
 Exp: Explanation`
   );
 });
 
-bot.on("message",msg=>{
-  if(!ADD||!msg.reply_to_message) return;
-  ADD=false;
+bot.on("message", msg => {
+  if (!ADD || !msg.reply_to_message) return;
+  ADD = false;
 
-  const blocks=msg.text.split(/\n(?=Q\.)/i);
-  let add=0,skip=0;
+  let currentSubject = "General";
+  const subjectMatch = msg.text.match(/^SUBJECT:\s*(.*)$/im);
+  if (subjectMatch) currentSubject = subjectMatch[1].trim();
 
-  blocks.forEach(b=>{
-    const q=b.match(/Q\.\s*(.*)/i)?.[1];
-    const A=b.match(/A\)(.*)/)?.[1];
-    const B=b.match(/B\)(.*)/)?.[1];
-    const C=b.match(/C\)(.*)/)?.[1];
-    const D=b.match(/D\)(.*)/)?.[1];
-    const ans=b.match(/Ans:\s*([ABCD])/i)?.[1];
-    const exp=b.match(/Exp:\s*(.*)/i)?.[1]||"";
-    if(q&&A&&B&&C&&D&&ans){
-      DB.mcqs.push({q,A,B,C,D,ans,exp});
+  const blocks = msg.text
+    .replace(/^SUBJECT:.*$/im, "")
+    .trim()
+    ..split(/\n(?=Q\.)/i);
+
+  let add = 0, skip = 0;
+
+  blocks.forEach(b => {
+    const q = b.match(/Q\.\s*(.*)/i)?.[1];
+    const A = b.match(/A\)\s*(.*)/i)?.[1];
+    const B = b.match(/B\)\s*(.*)/i)?.[1];
+    const C = b.match(/C\)\s*(.*)/i)?.[1];
+    const D = b.match(/D\)\s*(.*)/i)?.[1];
+    const ans = b.match(/Ans:\s*([ABCD])/i)?.[1];
+    const exp = b.match(/Exp:\s*(.*)/i)?.[1] || "";
+
+    if (q && A && B && C && D && ans) {
+      DB.mcqs.push({
+        q, A, B, C, D, ans, exp,
+        subject: currentSubject
+      });
       add++;
-    } else skip++;
+    } else {
+      skip++;
+    }
   });
+
   save();
-  bot.sendMessage(msg.chat.id,`🛠️ Admin Panel\nAdded: ${add}\nSkipped: ${skip}`);
+  bot.sendMessage(
+    msg.chat.id,
+    `🛠 Admin Panel\nAdded: ${add}\nSkipped: ${skip}`
+  );
 });
 /* ================= MCQ COUNT (ADMIN) ================= */
 bot.onText(/\/mcqcount/, msg => {
@@ -271,19 +291,38 @@ D) ${q.D}
   },300000);
 }
 
-bot.on("callback_query",q=>{
-  if(!TEST) return;
+bot.on("callback_query", q => {
+  if (!TEST) return;
+
+  const userAns = q.data;
+  const cur = TEST.pool[TEST.i];
+
   clearTimeout(TEST.timer);
   clearInterval(TEST.tick);
-  const cur=TEST.pool[TEST.i];
-  if(q.data===cur.ans){
+
+  let text =
+    `🌺 Dr.Arzoo Fatema 🌺\n\n` +
+    `📝 Question ${TEST.i + 1}\n` +
+    `📚 Subject: ${cur.subject || "General"}\n\n`;
+
+  if (userAns === cur.ans) {
     TEST.correct++;
-    bot.sendMessage(GROUP_ID,"✅ Correct!");
+    text += "✅ Correct Answer\n";
   } else {
     TEST.wrong++;
-    bot.sendMessage(GROUP_ID,`❌ Wrong\nCorrect: ${cur.ans}\n${cur.exp}`);
+    text +=
+      "❌ Wrong Answer\n" +
+      `✔️ Correct Answer: ${cur.ans}\n`;
   }
-  TEST.i++; setTimeout(ask,2000);
+
+  if (cur.exp) {
+    text += `\n💡 Explanation:\n${cur.exp}`;
+  }
+
+  bot.sendMessage(GROUP_ID, text);
+
+  TEST.i++;
+  setTimeout(ask, 2000);
 });
 
 bot.onText(/\/dt$/,msg=>{
