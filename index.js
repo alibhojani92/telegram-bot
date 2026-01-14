@@ -179,7 +179,26 @@ bot.on("message",msg=>{
   save();
   bot.sendMessage(msg.chat.id,`🛠️ Admin Panel\nAdded: ${add}\nSkipped: ${skip}`);
 });
+/* ================= MCQ COUNT (ADMIN) ================= */
+bot.onText(/\/mcqcount/, msg => {
+  if (msg.from.id !== ADMIN_ID) return;
 
+  const total = DB.mcqs.length;
+  const subjectCount = {};
+
+  DB.mcqs.forEach(q => {
+    const s = q.subject || "General";
+    subjectCount[s] = (subjectCount[s] || 0) + 1;
+  });
+
+  let text = `🛠️ Admin Panel\n📚 MCQ Database Status\n\nTotal MCQs: ${total}\n\nSubjects:\n`;
+
+  for (const s in subjectCount) {
+    text += `• ${s}: ${subjectCount[s]}\n`;
+  }
+
+  bot.sendMessage(msg.chat.id, text);
+});
 /* ================= TEST ENGINE ================= */
 let TEST=null;
 
