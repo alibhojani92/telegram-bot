@@ -115,24 +115,25 @@ bot.onText(/\/stop/i, (msg) => {
   );
 });
 
-/* ================= MCQ ADD (ADMIN – REPLY) ================= */
-let ADD = false;
+/* ================= MCQ ADD (ADMIN – BULK SAFE FINAL) ================= */
 
-bot.onText(/\/addmcq$/i, (msg) => {
+bot.onText(/^\/addmcqs$/i, (msg) => {
   if (msg.from.id !== ADMIN_ID) return;
-  ADD = true;
+
   bot.sendMessage(
     msg.chat.id,
-    `🛠 Admin Panel
-Reply with MCQs (SUBJECT optional)`
+    "🛠 Admin Panel\nReply to THIS message with MCQs\n\nFormat:\nSUBJECT: Oral Pathology\nQ1..."
   );
 });
 
 bot.on("message", (msg) => {
-  if (!ADD || !msg.reply_to_message || !msg.text) return;
-  if (msg.text.startsWith("/")) return;
-
-  
+  if (
+    msg.from.id !== ADMIN_ID ||
+    !msg.reply_to_message ||
+    !msg.reply_to_message.text?.includes("Admin Panel") ||
+    !msg.text ||
+    msg.text.startsWith("/")
+  ) return;
 
   let subject = "General";
   const sm = msg.text.match(/^SUBJECT:\s*(.*)$/im);
@@ -141,30 +142,37 @@ bot.on("message", (msg) => {
   const blocks = msg.text
     .replace(/^SUBJECT:.*$/im, "")
     .trim()
-    .split(/\n(?=Q\.|\d+\.)/i);
+    .split(/(?=Q\d+\.)/i);
 
-  let add = 0,
-    skip = 0;
+  let added = 0;
+  let skipped = 0;
 
   blocks.forEach((b) => {
-    const q = b.match(/Q\.?\s*\d*\.?\s*(.*)/i)?.[1];
-    const A = b.match(/A\)\s*(.*)/i)?.[1];
-    const B = b.match(/B\)\s*(.*)/i)?.[1];
-    const C = b.match(/C\)\s*(.*)/i)?.[1];
-    const D = b.match(/D\)\s*(.*)/i)?.[1];
-    const ans = b.match(/Ans[:\s]*(\(?[ABCD]\)?)/i)?.[1]?.replace(/[()]/g, "");
-    const exp = b.match(/Exp[:\s]*(.*)/i)?.[1] || "";
+    const q = b.match(/Q\d+\.\s*(.*)/i)?.[1]?.trim();
+    const A = b.match(/A\)\s*(.*)/i)?.[1]?.trim();
+    const B = b.match(/B\)\s*(.*)/i)?.[1]?.trim();
+    const C = b.match(/C\)\s*(.*)/i)?.[1]?.trim();
+    const D = b.match(/D\)\s*(.*)/i)?.[1]?.trim();
+    const ans = b.match(/Ans:\s*\(?([ABCD])\)?/i)?.[1];
+    const exp = b.match(/Exp:\s*(.*)/i)?.[1] || "";
 
     if (q && A && B && C && D && ans) {
       DB.mcqs.push({ q, A, B, C, D, ans, exp, subject });
-      add++;
-    } else skip++;
+      added++;
+    } else {
+      skipped++;
+    }
   });
 
   save();
- ADD = false;
-  bot.sendMessage(msg.chat.id, `🛠 Admin Panel\nAdded: ${add}\nSkipped: ${skip}`);
+
+  bot.sendMessage(
+    msg.chat.id,
+    `🛠 Admin Panel\nAdded: ${added}\nSkipped: ${skipped}`
+  );
 });
+
+/* ================= END MCQ ADD ================= */
 
 /* ================= MCQ COUNT ================= */
 bot.onText(/\/mcqcount/i, (msg) => {
