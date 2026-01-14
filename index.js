@@ -58,7 +58,7 @@ let DB = fs.existsSync(DB_FILE)
 const save=()=>fs.writeFileSync(DB_FILE,JSON.stringify(DB,null,2));
 
 /* ================= READING ================= */
-bot.onText(/\/read/,msg=>{
+bot.onText(/\/read/i,msg=>{
   const d=today(), u=msg.from.id;
   if(DB.readingSession[u]?.date===d){
     bot.sendMessage(msg.chat.id,intro(msg)+"📖 Reading already running");
@@ -69,7 +69,7 @@ bot.onText(/\/read/,msg=>{
   bot.sendMessage(msg.chat.id,intro(msg)+"📚 Reading started\nStay focused 💪");
 });
 
-bot.onText(/\/stop/,msg=>{
+bot.onText(/\/stop/i,msg=>{
   const u=msg.from.id, s=DB.readingSession[u];
   if(!s){
     bot.sendMessage(msg.chat.id,intro(msg)+"⚠️ No active reading");
