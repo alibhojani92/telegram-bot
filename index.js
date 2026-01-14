@@ -1,5 +1,5 @@
 /*****************************************************************
- GPSC DENTAL PULSE BOT – FINAL v7.0 (PRODUCTION)
+ GPSC DENTAL PULSE BOT – v7.2 FINAL (LOCKED & STABLE)
 *****************************************************************/
 
 const fs = require("fs");
@@ -16,12 +16,10 @@ const TIMEZONE = process.env.TIMEZONE || "Asia/Kolkata";
 
 /* ================= SERVER ================= */
 const app = express();
-app.use(express.json({ limit: "10mb" }));
+app.use(express.json({ limit: "25mb" }));
 
 /* ================= BOT ================= */
-const bot = new TelegramBot(TOKEN, {
-  webHook: true
-});
+const bot = new TelegramBot(TOKEN, { webHook: true });
 bot.setWebHook(`${APP_URL}/bot${TOKEN}`);
 
 app.post(`/bot${TOKEN}`, (req, res) => {
@@ -29,73 +27,88 @@ app.post(`/bot${TOKEN}`, (req, res) => {
   res.sendStatus(200);
 });
 
-app.get("/", (_, res) => res.send("GPSC Dental Pulse Bot v7.0 Running ✅"));
+app.get("/", (_, res) =>
+  res.send("GPSC Dental Pulse Bot v7.2 Running ✅")
+);
+
 app.listen(PORT);
 
-/* ================= HELPERS ================= */
+/* ================= TIME HELPERS ================= */
 const nowIST = () =>
   new Date(new Date().toLocaleString("en-US", { timeZone: TIMEZONE }));
 const today = () => nowIST().toISOString().slice(0, 10);
-const mm = (min) =>
-  `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
-
-const intro = (msg) =>
-  msg.from.id === ADMIN_ID ? "🛠 Admin Panel\n" : "🌺 Dr. Arzoo Fatema 🌺\n";
 
 /* ================= DATABASE ================= */
 const DB_FILE = "./data.json";
 let DB = fs.existsSync(DB_FILE)
   ? JSON.parse(fs.readFileSync(DB_FILE))
   : {
+      mcqs: [],
+      used: {},
       readingLog: {},
       readingSession: {},
-      mcqs: [],
-      tests: [],
-      used: {}, // date-wise used MCQs
+      lastMotivationDate: ""
     };
 
-const save = () => fs.writeFileSync(DB_FILE, JSON.stringify(DB, null, 2));
+const save = () =>
+  fs.writeFileSync(DB_FILE, JSON.stringify(DB, null, 2));
+
+/* ================= INTRO ================= */
+const intro = () => "🌸 Dr. Arzoo Fatema 🌸\n";
 
 /* ================= START ================= */
-bot.onText(/\/start/i, (msg) => {
+bot.onText(/^\/start$/, (msg) => {
   bot.sendMessage(
     msg.chat.id,
-    `🌺 Dr. Arzoo Fatema 🌺
-GPSC Dental Pulse Bot is LIVE ✅`
+    intro() + "GPSC Dental Pulse Bot is LIVE ✅"
   );
 });
 
+/* ================= DAILY MOTIVATION (ONCE) ================= */
+function dailyMotivation(chatId) {
+  if (DB.lastMotivationDate === today()) return;
+  DB.lastMotivationDate = today();
+  save();
+
+  bot.sendMessage(
+    chatId,
+    "🌅 New day, new chance 🌱\nAaje thodu pan padhsho to kal confident feel thase 💪"
+  );
+}
+
 /* ================= READING ================= */
-bot.onText(/\/read/i, (msg) => {
-  if (msg.from.id === ADMIN_ID)
-    return bot.sendMessage(msg.chat.id, "ℹ️ Admin test mode – reading not counted");
+bot.onText(/^\/read$/i, (msg) => {
+  dailyMotivation(msg.chat.id);
 
-  const d = today();
-  if (DB.readingSession[msg.from.id]?.date === d)
-    return bot.sendMessage(msg.chat.id, intro(msg) + "📖 Reading already running");
+  if (msg.from.id === ADMIN_ID) {
+    return bot.sendMessage(
+      msg.chat.id,
+      "🛠 Admin mode: reading count nathi thatu"
+    );
+  }
 
-  DB.readingSession[msg.from.id] = { start: Date.now(), date: d };
+  DB.readingSession[msg.from.id] = {
+    start: Date.now(),
+    date: today(),
+  };
   save();
 
   bot.sendMessage(
     msg.chat.id,
-    `${intro(msg)}📖 Reading started
-🎯 Target: 08:00
-⏳ Remaining: 08:00`
+    "📖 Reading started\n🎯 Target: 8 hours\nStay focused 💪"
   );
+
   bot.sendMessage(
     ADMIN_ID,
-    `👤 Student started reading\n🕒 ${nowIST().toLocaleTimeString()}`
+    "👤 Student started reading"
   );
 });
 
-bot.onText(/\/stop/i, (msg) => {
-  if (msg.from.id === ADMIN_ID)
-    return bot.sendMessage(msg.chat.id, "ℹ️ Admin test mode – no reading session");
-
+bot.onText(/^\/stop$/i, (msg) => {
   const s = DB.readingSession[msg.from.id];
-  if (!s)
-    return bot.sendMessage(msg.chat.id, intro(msg) + "⚠️ No active reading");
+  if (!s) {
+    return bot.sendMessage(msg.chat.id, "⚠️ Reading already stopped");
+  }
 
   const mins = Math.floor((Date.now() - s.start) / 60000);
   DB.readingLog[s.date] = (DB.readingLog[s.date] || 0) + mins;
@@ -103,26 +116,25 @@ bot.onText(/\/stop/i, (msg) => {
   save();
 
   const total = DB.readingLog[s.date];
+
   bot.sendMessage(
     msg.chat.id,
-    `${intro(msg)}⏱ Reading stopped
-📘 Today: ${mm(total)}
-🎯 Remaining: ${mm(Math.max(480 - total, 0))}`
+    `📖 Reading stopped\nToday: ${total} min\nKeep going 🌱`
   );
+
   bot.sendMessage(
     ADMIN_ID,
-    `👤 Student stopped reading\n📘 Today total: ${mm(total)}`
+    `👤 Student stopped reading\nToday total: ${total} min`
   );
 });
 
-/* ================= MCQ ADD (ADMIN – BULK FINAL FIX) ================= */
-
-bot.onText(/^\/addmcq(s)?$/i, (msg) => {
+/* ================= MCQ ADD (ADMIN – BULK SAFE) ================= */
+bot.onText(/^\/addmcq$/i, (msg) => {
   if (msg.from.id !== ADMIN_ID) return;
 
   bot.sendMessage(
     msg.chat.id,
-    "🛠 Admin Panel\nReply to THIS message with MCQs\n\nFormat:\nSUBJECT: Oral Pathology\nQ1...."
+    "🛠 Admin Panel\nReply to THIS message with MCQs\n\nFormat:\nSUBJECT: Oral Pathology\nQ1..."
   );
 });
 
@@ -133,7 +145,8 @@ bot.on("message", (msg) => {
     !msg.reply_to_message.text?.includes("Admin Panel") ||
     !msg.text ||
     msg.text.startsWith("/")
-  ) return;
+  )
+    return;
 
   let subject = "General";
   const sm = msg.text.match(/^SUBJECT:\s*(.*)$/im);
@@ -142,26 +155,24 @@ bot.on("message", (msg) => {
   const blocks = msg.text
     .replace(/^SUBJECT:.*$/im, "")
     .trim()
-    .split(/(?=Q\d+\.)/i);
+    .split(/(?=\nQ\d+\.)/i);
 
-  let added = 0;
-  let skipped = 0;
+  let added = 0,
+    skipped = 0;
 
   blocks.forEach((b) => {
-    const q = b.match(/Q\d+\.\s*(.*)/)?.[1]?.trim();
-    const A = b.match(/A\)\s*(.*)/)?.[1]?.trim();
-    const B = b.match(/B\)\s*(.*)/)?.[1]?.trim();
-    const C = b.match(/C\)\s*(.*)/)?.[1]?.trim();
-    const D = b.match(/D\)\s*(.*)/)?.[1]?.trim();
+    const q = b.match(/Q\d+\.\s*(.*)/i)?.[1];
+    const A = b.match(/A\)\s*(.*)/i)?.[1];
+    const B = b.match(/B\)\s*(.*)/i)?.[1];
+    const C = b.match(/C\)\s*(.*)/i)?.[1];
+    const D = b.match(/D\)\s*(.*)/i)?.[1];
     const ans = b.match(/Ans:\s*([ABCD])/i)?.[1];
     const exp = b.match(/Exp:\s*(.*)/i)?.[1] || "";
 
     if (q && A && B && C && D && ans) {
       DB.mcqs.push({ q, A, B, C, D, ans, exp, subject });
       added++;
-    } else {
-      skipped++;
-    }
+    } else skipped++;
   });
 
   save();
@@ -172,19 +183,21 @@ bot.on("message", (msg) => {
   );
 });
 
-/* ================= END MCQ ADD ================= */
-
 /* ================= MCQ COUNT ================= */
-bot.onText(/\/mcqcount/i, (msg) => {
-  if (msg.from.id !== ADMIN_ID)
-    return bot.sendMessage(msg.chat.id, "❌ Admin only command");
+bot.onText(/^\/mcqcount$/, (msg) => {
+  if (msg.from.id !== ADMIN_ID) return;
 
   const map = {};
-  DB.mcqs.forEach((m) => (map[m.subject] = (map[m.subject] || 0) + 1));
+  DB.mcqs.forEach((m) => {
+    map[m.subject] = (map[m.subject] || 0) + 1;
+  });
 
-  let t = `📚 MCQ DATABASE\nTotal: ${DB.mcqs.length}\n\n`;
-  Object.keys(map).forEach((s) => (t += `• ${s}: ${map[s]}\n`));
-  bot.sendMessage(msg.chat.id, t);
+  let text = `📚 MCQ DATABASE\nTotal: ${DB.mcqs.length}\n\n`;
+  Object.keys(map).forEach(
+    (s) => (text += `${s}: ${map[s]}\n`)
+  );
+
+  bot.sendMessage(msg.chat.id, text);
 });
 
 /* ================= TEST ENGINE ================= */
@@ -193,158 +206,100 @@ let TEST = null;
 function pickMCQs(total, subject) {
   const d = today();
   DB.used[d] = DB.used[d] || [];
+
   let pool = DB.mcqs.filter(
-    (m) => !DB.used[d].includes(m.q) && (!subject || m.subject.toLowerCase() === subject)
+    (m) =>
+      !DB.used[d].includes(m.q) &&
+      (!subject ||
+        m.subject.toLowerCase() === subject.toLowerCase())
   );
+
   pool = pool.sort(() => Math.random() - 0.5).slice(0, total);
   pool.forEach((q) => DB.used[d].push(q.q));
   save();
   return pool;
 }
 
-function startTest(type, total, subject = null) {
-  const pool = pickMCQs(total, subject);
-  if (!pool.length)
-    return bot.sendMessage(GROUP_ID, "❌ No MCQs found for this subject");
-
-  TEST = { type, total, pool, i: 0, correct: 0, wrong: 0 };
-  ask();
+function sendQuestion() {
+  const q = TEST.mcqs[TEST.index];
+  bot.sendMessage(
+    TEST.chatId,
+    `Q${TEST.index + 1}. ${q.q}\n\nA) ${q.A}\nB) ${q.B}\nC) ${q.C}\nD) ${q.D}`
+  );
 }
 
-function ask() {
-  if (!TEST) return;
-  if (TEST.i >= TEST.total) {
-    DB.tests.push({
-      date: today(),
-      type: TEST.type,
-      total: TEST.total,
-      correct: TEST.correct,
-      wrong: TEST.wrong,
-    });
-    save();
-    bot.sendMessage(
-      GROUP_ID,
-      `🌺 Dr. Arzoo Fatema 🌺
-📊 ${TEST.type} Test Finished
-✅ ${TEST.correct}/${TEST.total}`
+/* ================= DAILY TEST ================= */
+bot.onText(/^\/dt(?:\s+(.*))?$/i, (msg, m) => {
+  TEST = null; // HARD RESET (BUG FIX)
+
+  const subject = m[1]?.trim();
+  const mcqs = pickMCQs(20, subject);
+
+  if (mcqs.length < 10) {
+    return bot.sendMessage(
+      msg.chat.id,
+      "⚠️ Minimum 10 MCQs required to start Daily Test"
     );
-    TEST = null;
-    return;
   }
 
-  const q = TEST.pool[TEST.i];
-  let min = 5;
+  TEST = {
+    chatId: msg.chat.id,
+    index: 0,
+    score: 0,
+    mcqs,
+  };
 
-  bot.sendMessage(
-    GROUP_ID,
-    `🌺 Dr. Arzoo Fatema 🌺
-📝 ${TEST.type} – Q${TEST.i + 1}
-📚 ${q.subject}
+  sendQuestion();
+});
 
-${q.q}
+/* ================= ANSWER HANDLER ================= */
+bot.on("message", (msg) => {
+  if (!TEST || msg.chat.id !== TEST.chatId) return;
 
-A) ${q.A}
-B) ${q.B}
-C) ${q.C}
-D) ${q.D}
+  const ans = msg.text?.toUpperCase();
+  if (!["A", "B", "C", "D"].includes(ans)) return;
 
-⏱️ Time: 5 min`,
-    {
-      reply_markup: {
-        inline_keyboard: [
-          [
-            { text: "A", callback_data: "A" },
-            { text: "B", callback_data: "B" },
-          ],
-          [
-            { text: "C", callback_data: "C" },
-            { text: "D", callback_data: "D" },
-          ],
-        ],
-      },
-    }
-  );
+  const q = TEST.mcqs[TEST.index];
+  let feedback = "";
 
-  TEST.tick = setInterval(() => {
-    min--;
-    if (min <= 2 && min > 0)
-      bot.sendMessage(GROUP_ID, `⏳ ${min} min left`);
-  }, 60000);
+  if (ans === q.ans) {
+    TEST.score++;
+    feedback = "✅ Correct";
+  } else {
+    feedback = `❌ Wrong\n✔️ Correct: ${q.ans}`;
+  }
 
-  TEST.timer = setTimeout(() => {
-    clearInterval(TEST.tick);
-    TEST.wrong++;
-    bot.sendMessage(
-      GROUP_ID,
-      `⏰ Time up!
-✔️ Correct: ${q.ans}
-💡 ${q.exp}`
+  if (q.exp) {
+    feedback += `\n💡 Explanation:\n${q.exp}`;
+  }
+
+  bot.sendMessage(msg.chat.id, feedback);
+
+  TEST.index++;
+
+  if (TEST.index >= TEST.mcqs.length) {
+    const percent = Math.round(
+      (TEST.score / TEST.mcqs.length) * 100
     );
-    TEST.i++;
-    ask();
-  }, 300000);
-}
 
-bot.on("callback_query", (cq) => {
-  if (!TEST) return;
-  clearTimeout(TEST.timer);
-  clearInterval(TEST.tick);
+    let motivation = "";
+    if (percent >= 80)
+      motivation =
+        "🌟 Excellent! Keep this consistency – GPSC clear thase 💪";
+    else if (percent >= 50)
+      motivation =
+        "🙂 Good attempt! Weak areas revise karo – improvement pakki che";
+    else
+      motivation =
+        "🤍 Don’t worry. Slowly revise karo – consistency > marks";
 
-  const q = TEST.pool[TEST.i];
-  if (cq.data === q.ans) TEST.correct++;
-  else TEST.wrong++;
+    bot.sendMessage(
+      msg.chat.id,
+      `${intro()}Daily Test Finished\nScore: ${TEST.score}/${TEST.mcqs.length} (${percent}%)\n\n${motivation}`
+    );
 
-  bot.sendMessage(
-    GROUP_ID,
-    `${cq.data === q.ans ? "✅ Correct" : "❌ Wrong"}
-✔️ ${q.ans}
-💡 ${q.exp}`
-  );
-  TEST.i++;
-  setTimeout(ask, 2000);
+    TEST = null;
+  } else {
+    setTimeout(sendQuestion, 2000);
+  }
 });
-
-bot.onText(/\/dt(?:\s+(.*))?/i, (msg, m) => {
-  if (msg.chat.id !== GROUP_ID) return;
-  startTest("Daily", 20, m[1]?.toLowerCase());
-});
-bot.onText(/\/wt/i, (msg) => {
-  if (msg.chat.id !== GROUP_ID) return;
-  startTest("Weekly", 50);
-});
-bot.onText(/\/dtc|\/wtc/i, (msg) => {
-  if (msg.from.id !== ADMIN_ID) return;
-  TEST = null;
-  bot.sendMessage(GROUP_ID, "🛑 Test cancelled by admin");
-});
-
-/* ================= REPORTS ================= */
-bot.onText(/\/report/i, (msg) => {
-  const mins = DB.readingLog[today()] || 0;
-  bot.sendMessage(
-    msg.chat.id,
-    `${intro(msg)}📊 Daily Report
-📘 Study: ${mm(mins)}
-💡 Keep revising weak subjects`
-  );
-});
-
-bot.onText(/\/mr/i, (msg) => {
-  let total = 0;
-  Object.values(DB.readingLog).forEach((m) => (total += m));
-  bot.sendMessage(
-    msg.chat.id,
-    `${intro(msg)}📊 Monthly Report
-📘 Total: ${mm(total)}`
-  );
-});
-
-/* ================= AUTO MESSAGES ================= */
-setInterval(() => {
-  const n = nowIST();
-  if (n.getHours() === 0 && n.getMinutes() === 0) DB.readingSession = {};
-  if (n.getHours() === 6 && n.getMinutes() === 0)
-    bot.sendMessage(GROUP_ID, "🌅 Good Morning\n🎯 Target: 08:00");
-  if (n.getHours() === 23 && n.getMinutes() === 59)
-    bot.sendMessage(GROUP_ID, "🌙 Good Night\nRevise weak areas");
-}, 60000);
