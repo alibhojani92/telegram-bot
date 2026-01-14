@@ -1,5 +1,5 @@
 /*****************************************************************
- GPSC DENTAL PULSE BOT – FINAL A TO Z (WEBHOOK VERSION)
+ GPSC DENTAL PULSE BOT – FINAL STABLE VERSION (WEBHOOK)
 ******************************************************************/
 
 const express = require("express");
@@ -10,36 +10,26 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 const TOKEN = process.env.BOT_TOKEN;
+const APP_URL = process.env.APP_URL;
 const GROUP_ID = Number(process.env.GROUP_ID);
-const APP_URL = process.env.APP_URL; // https://your-app.onrender.com
+const ADMIN_ID = Number(process.env.ADMIN_ID);
+const STUDENT_ID = Number(process.env.STUDENT_ID);
 
-// ================= BOT INIT (NO POLLING) =================
+// ================= BOT INIT =================
 const bot = new TelegramBot(TOKEN);
 bot.setWebHook(`${APP_URL}/bot${TOKEN}`);
 
-// ================= WEBHOOK ROUTE =================
+// ================= WEBHOOK =================
 app.post(`/bot${TOKEN}`, (req, res) => {
   bot.processUpdate(req.body);
   res.sendStatus(200);
 });
 
-// ================= BASIC SERVER =================
-app.get("/", (req, res) => res.send("GPSC DENTAL PULSE BOT Running ✅"));
-app.listen(PORT, () => console.log("Server started"));
+app.get("/", (_, res) => res.send("GPSC DENTAL PULSE BOT Running ✅"));
+app.listen(PORT, () => console.log("Server Live"));
 
-// ================= DATA =================
+// ================= HELPERS =================
 const DAILY_TARGET = 8;
-let readingStart = null;
-let studiedToday = 0;
-
-// MCQ
-let MCQS = [];
-let activeTest = null;
-
-// Semi-ChatGPT
-let TOPICS = {};
-
-// Motivation
 const QUOTES = [
   "Consistency beats talent.",
   "Small steps daily give big results.",
@@ -50,59 +40,112 @@ const QUOTES = [
 const randQuote = () => QUOTES[Math.floor(Math.random() * QUOTES.length)];
 const hrs = (ms) => Math.round((ms / 36e5) * 100) / 100;
 
+const isAdmin = (id) => id === ADMIN_ID;
+const isStudent = (id) => id === STUDENT_ID;
+
+// Student sync: group + private
+function sendStudent(msg) {
+  bot.sendMessage(GROUP_ID, msg);
+  bot.sendMessage(STUDENT_ID, msg);
+}
+
+// ================= READING (CHAT-WISE FIX) =================
+const reading = {}; // chatId -> { start, total }
+
+bot.onText(/(\/read|#read)/, (msg) => {
+  const cid = msg.chat.id;
+  if (!reading[cid]) reading[cid] = { start: null, total: 0 };
+
+  if (reading[cid].start) {
+    const t = "Dear Arzoo 📖\nAlready reading.";
+    return isStudent(msg.from.id) ? sendStudent(t) : bot.sendMessage(cid, t);
+  }
+
+  reading[cid].start = Date.now();
+  const t = "Dear Arzoo 📖\nReading started. Stay focused 💪";
+  isStudent(msg.from.id) ? sendStudent(t) : bot.sendMessage(cid, t);
+});
+
+bot.onText(/\/stop/, (msg) => {
+  const cid = msg.chat.id;
+  if (!reading[cid] || !reading[cid].start) {
+    const t = "Dear Arzoo ⏹️\nReading not started.";
+    return isStudent(msg.from.id) ? sendStudent(t) : bot.sendMessage(cid, t);
+  }
+
+  const spent = hrs(Date.now() - reading[cid].start);
+  reading[cid].total += spent;
+  reading[cid].start = null;
+
+  const remaining = Math.max(0, DAILY_TARGET - reading[cid].total);
+  const t =
+    `Dear Arzoo ⏱️\nStudied: ${reading[cid].total.toFixed(2)} hrs\n` +
+    `Target: ${DAILY_TARGET} hrs\nRemaining: ${remaining.toFixed(2)} hrs 🎯`;
+
+  isStudent(msg.from.id) ? sendStudent(t) : bot.sendMessage(cid, t);
+});
+
 // ================= START =================
 bot.onText(/\/start/, (msg) => {
   bot.sendMessage(msg.chat.id, "Dear Arzoo 🌸\nGPSC DENTAL PULSE BOT Running ✅");
 });
 
-// ================= READING =================
-bot.onText(/(\/read|#read)/, (msg) => {
-  if (readingStart) {
-    bot.sendMessage(msg.chat.id, "Dear Arzoo 📖\nReading already running. Use /stop.");
-    return;
-  }
-  readingStart = Date.now();
-  bot.sendMessage(msg.chat.id, "Dear Arzoo 📖\nReading started. Stay focused 💪");
-});
+// ================= MCQ STORAGE =================
+let MCQS = [];
+let MCQ_ID = 1;
 
-bot.onText(/\/stop/, (msg) => {
-  if (!readingStart) {
-    bot.sendMessage(msg.chat.id, "Dear Arzoo 📘\nNo active reading session.");
-    return;
-  }
-  const spent = hrs(Date.now() - readingStart);
-  studiedToday += spent;
-  readingStart = null;
-  const remaining = Math.max(0, DAILY_TARGET - studiedToday);
-  bot.sendMessage(
-    msg.chat.id,
-    `Dear Arzoo ⏱️\nStudied: ${studiedToday} hrs\nTarget: ${DAILY_TARGET}\nRemaining: ${remaining} hrs`
-  );
-});
-
-// ================= ADD MCQ (PRIVATE) =================
+// ================= ADD MCQ (UNLIMITED – PRIVATE ADMIN) =================
 bot.onText(/\/addmcq([\s\S]*)/, (msg, match) => {
-  if (msg.chat.type !== "private") return;
+  if (msg.chat.type !== "private" || !isAdmin(msg.from.id)) return;
 
-  const t = match[1];
-  const q = t.match(/Q:(.*)/)?.[1];
-  const A = t.match(/A\)(.*)/)?.[1];
-  const B = t.match(/B\)(.*)/)?.[1];
-  const C = t.match(/C\)(.*)/)?.[1];
-  const D = t.match(/D\)(.*)/)?.[1];
-  const ans = t.match(/ANS:(.*)/)?.[1]?.trim();
-  const exp = t.match(/EXP:(.*)/)?.[1] || "";
+  const text = match[1].trim();
+  if (!text) return bot.sendMessage(msg.chat.id, "❌ Paste MCQs after /addmcq");
 
-  if (!q || !A || !B || !C || !D || !ans) {
-    bot.sendMessage(msg.chat.id, "❌ MCQ format wrong");
-    return;
-  }
+  const blocks = text.split(/\n(?=Q\d+[\.\:])/i);
+  let added = 0;
 
-  MCQS.push({ q: q.trim(), options: { A, B, C, D }, ans, exp });
-  bot.sendMessage(msg.chat.id, "✅ MCQ saved");
+  blocks.forEach((b) => {
+    const q = b.match(/Q\d+[\.\:]\s*(.*)/i)?.[1];
+    const A = b.match(/A\)\s*(.*)/)?.[1];
+    const B = b.match(/B\)\s*(.*)/)?.[1];
+    const C = b.match(/C\)\s*(.*)/)?.[1];
+    const D = b.match(/D\)\s*(.*)/)?.[1];
+    const ans = b.match(/OK\s*([ABCD])/i)?.[1];
+    const exp = b.match(/Explanation:\s*([\s\S]*)/i)?.[1] || "";
+
+    if (q && A && B && C && D && ans) {
+      MCQS.push({
+        id: MCQ_ID++,
+        q: q.trim(),
+        options: { A, B, C, D },
+        ans,
+        exp: exp.trim()
+      });
+      added++;
+    }
+  });
+
+  bot.sendMessage(msg.chat.id, `✅ ${added} MCQs added successfully`);
+});
+
+// ================= DELETE MCQ =================
+bot.onText(/\/deletemcq (\d+)/, (msg, m) => {
+  if (!isAdmin(msg.from.id)) return;
+  const id = Number(m[1]);
+  const len = MCQS.length;
+  MCQS = MCQS.filter(x => x.id !== id);
+  bot.sendMessage(msg.chat.id, len !== MCQS.length ? `🗑️ MCQ ${id} deleted` : "❌ MCQ not found");
+});
+
+bot.onText(/\/delete_last/, (msg) => {
+  if (!isAdmin(msg.from.id)) return;
+  if (MCQS.length) MCQS.pop();
+  bot.sendMessage(msg.chat.id, "🗑️ Last MCQ deleted");
 });
 
 // ================= TEST ENGINE =================
+let activeTest = null;
+
 function startTest(total) {
   activeTest = {
     index: 0,
@@ -116,21 +159,11 @@ function sendMCQ() {
 
   if (activeTest.index >= activeTest.questions.length) {
     const s = activeTest.score;
-    const result =
-      s >= 16 ? "EXCELLENT" :
-      s >= 14 ? "GOOD" :
-      s >= 12 ? "PASS" : "FAIL";
-
-    bot.sendMessage(
-      GROUP_ID,
-      `Dear Arzoo 📊\nTest Finished\nScore: ${s}\nResult: ${result}`
-    );
+    const result = s >= 16 ? "EXCELLENT" : s >= 14 ? "GOOD" : s >= 12 ? "PASS" : "FAIL";
+    sendStudent(`Dear Arzoo 📊\nScore: ${s}\nResult: ${result}`);
 
     setTimeout(() => {
-      bot.sendMessage(
-        GROUP_ID,
-        `Dear Arzoo 🌙\nPerformance: ${result}\n${randQuote()}\nGood Night 😴`
-      );
+      sendStudent(`🌙 Good Night Dear Arzoo\n${randQuote()}`);
     }, 5 * 60 * 1000);
 
     activeTest = null;
@@ -138,79 +171,35 @@ function sendMCQ() {
   }
 
   const m = activeTest.questions[activeTest.index];
-  bot.sendMessage(
-    GROUP_ID,
-    `Q${activeTest.index + 1}: ${m.q}\nA) ${m.options.A}\nB) ${m.options.B}\nC) ${m.options.C}\nD) ${m.options.D}`
+  sendStudent(
+    `Q${activeTest.index + 1}. ${m.q}\n` +
+    `A) ${m.options.A}\nB) ${m.options.B}\nC) ${m.options.C}\nD) ${m.options.D}`
   );
 }
 
-// ================= DAILY TEST (20) =================
 bot.onText(/\/dt/, (msg) => {
   if (msg.chat.id !== GROUP_ID) return;
   startTest(20);
-  bot.sendMessage(GROUP_ID, "Dear Arzoo 📝\nDaily Test Started (20 MCQs)");
+  sendStudent("📝 Daily Test Started (20 MCQs)");
   sendMCQ();
 });
 
-// ================= WEEKEND TEST (50) =================
 bot.onText(/\/dts/, (msg) => {
   if (msg.chat.id !== GROUP_ID) return;
   startTest(50);
-  bot.sendMessage(GROUP_ID, "Dear Arzoo 📝\nWeekend Test Started (50 MCQs)");
+  sendStudent("📝 Weekend Test Started (50 MCQs)");
   sendMCQ();
 });
 
-// ================= ANSWER HANDLER =================
 bot.on("message", (msg) => {
   if (!activeTest || msg.chat.id !== GROUP_ID) return;
-
   const ans = msg.text?.trim().toUpperCase();
   if (!["A","B","C","D"].includes(ans)) return;
 
   const q = activeTest.questions[activeTest.index];
   if (ans === q.ans) activeTest.score++;
-  else bot.sendMessage(GROUP_ID, `❌ Wrong\n${q.exp}`);
+  else if (q.exp) sendStudent(`❌ Wrong\n${q.exp}`);
 
   activeTest.index++;
   sendMCQ();
 });
-
-// ================= SEMI-CHATGPT =================
-bot.onText(/\/addtopic([\s\S]*)/, (msg, match) => {
-  if (msg.chat.type !== "private") return;
-
-  const topic = match[1].match(/Topic:(.*)/)?.[1]?.trim();
-  const ans = match[1].match(/Answer:([\s\S]*)/)?.[1]?.trim();
-
-  if (!topic || !ans) {
-    bot.sendMessage(msg.chat.id, "❌ Format wrong");
-    return;
-  }
-
-  TOPICS[topic.toLowerCase()] = ans;
-  bot.sendMessage(msg.chat.id, "✅ Topic saved");
-});
-
-bot.on("message", (msg) => {
-  if (msg.text?.startsWith("/") || msg.chat.id !== GROUP_ID) return;
-  const text = msg.text.toLowerCase();
-  for (let t in TOPICS) {
-    if (text.includes(t)) {
-      bot.sendMessage(msg.chat.id, `Dear Arzoo 📚\n${TOPICS[t]}`);
-      break;
-    }
-  }
-});
-
-// ================= 6 AM GOOD MORNING =================
-setInterval(() => {
-  const n = new Date();
-  if (n.getHours() === 6 && n.getMinutes() === 0) {
-    studiedToday = 0;
-    readingStart = null;
-    bot.sendMessage(
-      GROUP_ID,
-      `🌅 Good Morning Dear Arzoo\n"${randQuote()}"\nToday’s Target: 8 hrs 💪`
-    );
-  }
-}, 60000);
