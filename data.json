@@ -2,5 +2,6 @@
   "readingLog": {},
   "readingSession": {},
   "mcqs": [],
-  "testHistory": {}
+  "tests": {},
+  "wrongMcqs": {}
 }
