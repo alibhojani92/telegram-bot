@@ -19,7 +19,9 @@ const app = express();
 app.use(express.json());
 
 /* ================= BOT ================= */
-const bot = new TelegramBot(TOKEN);
+const bot = new TelegramBot(TOKEN, {
+  webHook: true
+});
 bot.setWebHook(`${APP_URL}/bot${TOKEN}`);
 
 app.post(`/bot${TOKEN}`, (req, res) => {
